@@ -6,6 +6,7 @@ import java.io.File;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -29,25 +30,21 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 
 public class App {
 
-    public static void main(String[] args) throws IOException {
-        File dotenv_file = new File(".env");
-        if (!dotenv_file.exists()) {
-            System.err.format(
-                ".env file not found in the current directory, created one at %s\n",
-                dotenv_file.getAbsolutePath()
-            );
-            FileWriter writer = new FileWriter(dotenv_file);
-            writer.write(
-                "ENT_USERNAME=\"\"\nENT_PASSWORD=\"\"\nNOTES_PATH=\"\"\nGECKODRIVER_PATH=\"\"\nGMAIL_USERNAME=\"\"\nGMAIL_PASSWORD=\"\"\nFROM_EMAIL=\"\"\nTO_EMAIL=\"\""
-            );
-            writer.close();
-            throw new RuntimeException("Please fill the .env file with the required information");
-        }
-        Dotenv dotenv = Dotenv.configure().load();
+    public static String ent_login_email;
+    public static String ent_password;
+    public static Path geckodriver_path;
+    public static String gmail_login_email;
+    public static String gmail_password;
+    public static String from_email;
+    public static String to_email;
 
-        while (true) {
-            scrapNotes(dotenv);
+    public static void main(String[] args) throws IOException {
+        setDotEnvValues();
+
+        System.out.println("Starting the UMscraper");
+        while (scrapNotes()) {
             try {
+                System.out.println("Sleeping for 1 hour");
                 Thread.sleep(Duration.ofMinutes(60).toMillis());
             } catch (InterruptedException e) {
                 e.printStackTrace();
@@ -56,133 +53,172 @@ public class App {
         }
     }
 
-    public static boolean scrapNotes(Dotenv dotenv) {
-        String ent_username = dotenv.get("ENT_USERNAME");
-        String ent_password = dotenv.get("ENT_PASSWORD");
-        String gmail_username = dotenv.get("GMAIL_USERNAME");
-        String gmail_password = dotenv.get("GMAIL_PASSWORD");
-        String from_email = dotenv.get("FROM_EMAIL");
-        String to_email = dotenv.get("TO_EMAIL");
-        String notes_path = Paths
-            .get(dotenv.get("NOTES_PATH").replaceFirst("^~", System.getProperty("user.home")))
-            .toAbsolutePath()
-            .normalize()
-            .toString();
+    public static void setDotEnvValues() throws IOException {
+        System.out.println("Setting up the environment variables");
+        File dotenv_file = new File(".env");
+        if (!dotenv_file.exists()) {
+            System.err.format(
+                ".env file not found in the current directory, created one at %s\n",
+                dotenv_file.getAbsolutePath()
+            );
+            FileWriter writer = new FileWriter(dotenv_file);
+            writer.write(
+                "ENT_LOGIN_EMAIL=\"\"\nENT_PASSWORD=\"\"\nNOTES_PATH=\"\"\nGECKODRIVER_PATH=\"\"\nGMAIL_LOGIN_EMAIL=\"\"\nGMAIL_PASSWORD=\"\"\nFROM_EMAIL=\"\"\nTO_EMAIL=\"\""
+            );
+            writer.close();
+            throw new RuntimeException("Please fill the .env file with the required information");
+        }
 
-        // Set the path to geckodriver if not in system PATH
-        System.setProperty("webdriver.gecko.driver", "/Users/leoh/.cargo/bin/geckodriver");
+        Dotenv dotenv = Dotenv.configure().load();
+        ent_login_email = dotenv.get("ENT_LOGIN_EMAIL");
+        ent_password = dotenv.get("ENT_PASSWORD");
+        geckodriver_path =
+            Paths
+                .get(
+                    dotenv
+                        .get("GECKODRIVER_PATH")
+                        .replaceFirst("^~", System.getProperty("user.home"))
+                )
+                .toAbsolutePath()
+                .normalize();
+        gmail_login_email = dotenv.get("GMAIL_LOGIN_EMAIL");
+        gmail_password = dotenv.get("GMAIL_PASSWORD");
+        from_email = dotenv.get("FROM_EMAIL");
+        to_email = dotenv.get("TO_EMAIL");
 
-        // Configure Firefox in headless mode
+        // Check if the geckodriver exists
+        if (!geckodriver_path.toFile().exists()) {
+            System.err.format(
+                "Geckodriver not found at %s, please provide the correct path in the .env file. You can download the geckodriver at https://github.com/mozilla/geckodriver/releases/\n",
+                geckodriver_path
+            );
+            throw new RuntimeException("Geckodriver not found");
+        }
+
+        // if from_email isn't specified, use the gmail_login_email as sender
+        if (from_email.isEmpty()) {
+            System.out.println("from_email not specified, using gmail_login_email as sender");
+            from_email = gmail_login_email;
+        }
+
+        if (
+            ent_login_email.isEmpty() ||
+            ent_password.isEmpty() ||
+            geckodriver_path.toString().isEmpty() ||
+            gmail_login_email.isEmpty() ||
+            gmail_password.isEmpty() ||
+            from_email.isEmpty() ||
+            to_email.isEmpty()
+        ) {
+            throw new RuntimeException("Please fill the .env file with the required information");
+        }
+    }
+
+    public static boolean scrapNotes() {
+        System.out.println("Initializing the WebDriver");
+        System.setProperty("webdriver.gecko.driver", geckodriver_path.toString());
         FirefoxOptions options = new FirefoxOptions();
-        options.addArguments("--headless"); // Run without GUI
-
-        // Initialize WebDriver
+        options.addArguments("--headless");
         WebDriver driver = new FirefoxDriver(options);
         WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(10));
 
         try {
-            // Navigate to the login page
-            driver.get("https://ent.umontpellier.fr");
-
-            // Locate and fill the username and password fields
-            WebElement usernameField = wait.until(
-                ExpectedConditions.visibilityOfElementLocated(By.id("username"))
-            );
-            WebElement passwordField = wait.until(
-                ExpectedConditions.visibilityOfElementLocated(By.id("password"))
-            );
-
-            usernameField.sendKeys(ent_username);
-            passwordField.sendKeys(ent_password);
-
-            // Submit the form
-            WebElement loginButton = wait.until(
-                ExpectedConditions.visibilityOfElementLocated(By.cssSelector("[type=submit]"))
-            );
-            loginButton.click();
-            System.out.println("Login successful");
-
-            // Wait for login to process
-            driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(10));
-
-            // Access a protected page after login
-            driver.get("https://app.umontpellier.fr/mdw/#!notesView"); // Change URL accordingly
-
-            WebElement L3Informatique = wait.until(
-                ExpectedConditions.visibilityOfElementLocated(
-                    By.cssSelector("[class=\"v-slot v-slot-link v-slot-v-link\"]")
-                )
-            );
-            L3Informatique.click();
-            System.out.println("L3 Informatique clicked");
-
-            WebElement divParentTableau = wait.until(
-                ExpectedConditions.visibilityOfElementLocated(
-                    By.cssSelector(
-                        "[class=\"v-table v-widget scrollabletable v-table-scrollabletable v-has-width v-has-height\"]"
-                    )
-                )
-            );
-
-            ArrayList<ArrayList<String>> notes = new ArrayList<ArrayList<String>>();
-            List<WebElement> rows = divParentTableau.findElements(By.tagName("tr"));
-            for (WebElement row : rows) {
-                List<WebElement> cols = row.findElements(By.tagName("td"));
-                String code = cols.get(0).getText().trim();
-                if (!code.startsWith("HAI5") && !code.startsWith("HAL5")) {
-                    continue;
-                }
-                String description = cols.get(1).getText().trim();
-                String session1 = cols.get(2).getText();
-                if (!session1.contains("/")) {
-                    continue;
-                }
-                session1 = session1.split("/")[0].trim();
-                notes.add(new ArrayList<String>(Arrays.asList(code, description, session1)));
-            }
+            loginToEnt(driver, wait);
+            ArrayList<ArrayList<String>> notes = fetchNotes(driver, wait);
             String notesString = notes
                 .stream()
                 .map(note -> String.join(";", note))
                 .reduce("", (acc, note) -> acc + note + "\n");
-            System.out.println("Notes fetched: \n" + notesString);
+            int nb_notes = notes.size() + 1; // +1 because the first row should be the header
 
-            // write the notes
-            new File(notes_path).mkdirs();
-
-            File file = new File(notes_path + "/notes.csv");
-            if (!file.exists()) {
-                file.createNewFile();
+            System.out.println("Writing notes to file");
+            File notes_file = new File("notes.csv");
+            if (!notes_file.exists()) {
+                notes_file.createNewFile();
             }
 
-            // read the previous number of notes
-            FileReader reader = new FileReader(file);
+            System.out.println("Reading old notes");
+            FileReader reader = new FileReader(notes_file);
             BufferedReader bufferedReader = new BufferedReader(reader);
-            int lineCount = 0;
+            int old_nb_notes = 0;
             while (bufferedReader.readLine() != null) {
-                lineCount++;
+                old_nb_notes++;
             }
             bufferedReader.close();
             reader.close();
 
-            // write the notes
-            FileWriter writer = new FileWriter(file);
+            System.out.println("Writing new notes");
+            FileWriter writer = new FileWriter(notes_file);
             writer.write("Code;Description;Session 1\n");
             writer.write(notesString);
             writer.close();
 
-            // create the notes_changed file if the number of notes has changed
-            file = new File(notes_path + "/notes_changed");
-            if (lineCount != notes.size() + 1) {
-                file.createNewFile();
-                sendMail(gmail_username, gmail_password, from_email, to_email, notesString);
+            if (old_nb_notes != nb_notes) {
+                System.out.println("Changes detected ! sending email...");
+                sendMail(gmail_login_email, gmail_password, from_email, to_email, notesString);
+            } else {
+                System.out.println("No changes detected");
             }
+            return true;
         } catch (Exception e) {
             e.printStackTrace();
             return false;
         } finally {
-            driver.quit(); // Close the browser
+            driver.quit();
         }
-        return false;
+    }
+
+    private static void loginToEnt(WebDriver driver, WebDriverWait wait) {
+        System.out.println("Logging in to ENT");
+        driver.get("https://ent.umontpellier.fr");
+        WebElement usernameField = wait.until(
+            ExpectedConditions.visibilityOfElementLocated(By.id("username"))
+        );
+        WebElement passwordField = wait.until(
+            ExpectedConditions.visibilityOfElementLocated(By.id("password"))
+        );
+        usernameField.sendKeys(ent_login_email);
+        passwordField.sendKeys(ent_password);
+        WebElement loginButton = wait.until(
+            ExpectedConditions.visibilityOfElementLocated(By.cssSelector("[type=submit]"))
+        );
+        loginButton.click();
+        driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(10));
+    }
+
+    private static ArrayList<ArrayList<String>> fetchNotes(WebDriver driver, WebDriverWait wait) {
+        System.out.println("Fetching notes");
+        driver.get("https://app.umontpellier.fr/mdw/#!notesView");
+        WebElement L3Informatique = wait.until(
+            ExpectedConditions.visibilityOfElementLocated(
+                By.cssSelector("[class=\"v-slot v-slot-link v-slot-v-link\"]")
+            )
+        );
+        L3Informatique.click();
+        WebElement divParentTableau = wait.until(
+            ExpectedConditions.visibilityOfElementLocated(
+                By.cssSelector(
+                    "[class=\"v-table v-widget scrollabletable v-table-scrollabletable v-has-width v-has-height\"]"
+                )
+            )
+        );
+        ArrayList<ArrayList<String>> notes = new ArrayList<>();
+        List<WebElement> rows = divParentTableau.findElements(By.tagName("tr"));
+        for (WebElement row : rows) {
+            List<WebElement> cols = row.findElements(By.tagName("td"));
+            String code = cols.get(0).getText().trim();
+            if (!code.startsWith("HAI5") && !code.startsWith("HAL5")) {
+                continue;
+            }
+            String description = cols.get(1).getText().trim();
+            String session1 = cols.get(2).getText();
+            if (!session1.contains("/")) {
+                continue;
+            }
+            session1 = session1.split("/")[0].trim();
+            notes.add(new ArrayList<>(Arrays.asList(code, description, session1)));
+        }
+        return notes;
     }
 
     public static void sendMail(
@@ -221,7 +257,7 @@ public class App {
             Transport.send(message);
             System.out.println("Email sent successfully");
         } catch (MessagingException e) {
-            throw new RuntimeException(e);
+            System.err.println("Error while sending the email\n" + e.getMessage());
         }
     }
 }
