@@ -21,6 +21,7 @@ import javax.mail.Transport;
 import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeMessage;
 import org.openqa.selenium.By;
+import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.firefox.FirefoxDriver;
@@ -29,6 +30,9 @@ import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
 public class App {
+
+    public static WebDriver driver;
+    public static WebDriverWait wait;
 
     public static String ent_login_email;
     public static String ent_password;
@@ -40,6 +44,7 @@ public class App {
 
     public static void main(String[] args) throws IOException {
         setDotEnvValues();
+        webDriverInit();
 
         System.out.println("Starting the UMscraper");
         while (scrapNotes()) {
@@ -96,9 +101,9 @@ public class App {
         }
 
         // if from_email isn't specified, use the gmail_login_email as sender
-        if (from_email.isEmpty()) {
+        if (from_email == null || from_email.isEmpty()) {
             System.out.println("from_email not specified, using gmail_login_email as sender");
-            from_email = gmail_login_email;
+            from_email = "" + gmail_login_email;
         }
 
         if (
@@ -114,14 +119,16 @@ public class App {
         }
     }
 
-    public static boolean scrapNotes() {
+    public static void webDriverInit() {
         System.out.println("Initializing the WebDriver");
         System.setProperty("webdriver.gecko.driver", geckodriver_path.toString());
         FirefoxOptions options = new FirefoxOptions();
         options.addArguments("--headless");
-        WebDriver driver = new FirefoxDriver(options);
-        WebDriverWait wait = new WebDriverWait(driver, Duration.ofSeconds(10));
+        driver = new FirefoxDriver(options);
+        wait = new WebDriverWait(driver, Duration.ofSeconds(10));
+    }
 
+    public static boolean scrapNotes() {
         try {
             loginToEnt(driver, wait);
             ArrayList<ArrayList<String>> notes = fetchNotes(driver, wait);
@@ -149,13 +156,13 @@ public class App {
 
             System.out.println("Writing new notes");
             FileWriter writer = new FileWriter(notes_file);
-            writer.write("Code;Description;Session 1\n");
+            writer.write("Code;Libellé;Session 1\n");
             writer.write(notesString);
             writer.close();
 
             if (old_nb_notes != nb_notes) {
                 System.out.println("Changes detected ! sending email...");
-                sendMail(gmail_login_email, gmail_password, from_email, to_email, notesString);
+                sendMail(notesString);
             } else {
                 System.out.println("No changes detected");
             }
@@ -166,6 +173,12 @@ public class App {
         } finally {
             driver.quit();
         }
+    }
+
+    private static void click(WebElement element) throws InterruptedException {
+        wait.until(ExpectedConditions.visibilityOf(element));
+        ((JavascriptExecutor) driver).executeScript("arguments[0].click();", element);
+        Thread.sleep(1000);
     }
 
     private static void loginToEnt(WebDriver driver, WebDriverWait wait) {
@@ -186,48 +199,84 @@ public class App {
         driver.manage().timeouts().implicitlyWait(Duration.ofSeconds(10));
     }
 
-    private static ArrayList<ArrayList<String>> fetchNotes(WebDriver driver, WebDriverWait wait) {
+    private static ArrayList<ArrayList<String>> fetchNotes(WebDriver driver, WebDriverWait wait)
+        throws InterruptedException {
         System.out.println("Fetching notes");
         driver.get("https://app.umontpellier.fr/mdw/#!notesView");
-        WebElement L3Informatique = wait.until(
-            ExpectedConditions.visibilityOfElementLocated(
-                By.cssSelector("[class=\"v-slot v-slot-link v-slot-v-link\"]")
-            )
-        );
-        L3Informatique.click();
-        WebElement divParentTableau = wait.until(
-            ExpectedConditions.visibilityOfElementLocated(
-                By.cssSelector(
-                    "[class=\"v-table v-widget scrollabletable v-table-scrollabletable v-has-width v-has-height\"]"
+
+        ArrayList<ArrayList<String>> notes = new ArrayList<>();
+
+        WebElement tableauFilieres = wait
+            .until(
+                ExpectedConditions.visibilityOfAllElementsLocatedBy(
+                    By.cssSelector(
+                        "[class=\"v-table v-widget noscrollabletable v-table-noscrollabletable v-has-width\"]"
+                    )
                 )
             )
-        );
-        ArrayList<ArrayList<String>> notes = new ArrayList<>();
-        List<WebElement> rows = divParentTableau.findElements(By.tagName("tr"));
-        for (WebElement row : rows) {
-            List<WebElement> cols = row.findElements(By.tagName("td"));
-            String code = cols.get(0).getText().trim();
-            if (!code.startsWith("HAI5") && !code.startsWith("HAL5")) {
-                continue;
+            .get(1);
+        int nbFilieres = tableauFilieres
+            .findElements(
+                By.cssSelector(
+                    "[class=\"v-button v-widget link v-button-link v-link v-button-v-link\"]"
+                )
+            )
+            .size();
+
+        for (int i = 1; i < nbFilieres; i += 2) {
+            tableauFilieres =
+                wait
+                    .until(
+                        ExpectedConditions.visibilityOfAllElementsLocatedBy(
+                            By.cssSelector(
+                                "[class=\"v-table v-widget noscrollabletable v-table-noscrollabletable v-has-width\"]"
+                            )
+                        )
+                    )
+                    .get(1);
+            WebElement filiere = tableauFilieres
+                .findElements(
+                    By.cssSelector(
+                        "[class=\"v-button v-widget link v-button-link v-link v-button-v-link\"]"
+                    )
+                )
+                .get(i);
+            String filiereText = filiere.getText();
+
+            click(filiere);
+            WebElement divPopup = wait.until(
+                ExpectedConditions.visibilityOfElementLocated(
+                    By.cssSelector("[class=\"v-window v-widget v-has-width v-has-height\"]")
+                )
+            );
+
+            System.out.println("Fetching notes for " + filiereText);
+            List<WebElement> rows = divPopup.findElements(By.tagName("tr"));
+            for (WebElement row : rows) {
+                List<WebElement> cols = row.findElements(By.tagName("td"));
+                String code = cols.get(0).getText().trim();
+                String description = cols.get(1).getText().trim();
+                String session1 = cols.get(2).getText().split("/")[0].trim();
+                if (code.isEmpty() || description.isEmpty() || session1.isEmpty()) {
+                    continue;
+                }
+                if (code.equals("Code")) {
+                    notes.add(new ArrayList<>(Arrays.asList(filiereText)));
+                } else {
+                    notes.add(new ArrayList<>(Arrays.asList(code, description, session1)));
+                }
             }
-            String description = cols.get(1).getText().trim();
-            String session1 = cols.get(2).getText();
-            if (!session1.contains("/")) {
-                continue;
-            }
-            session1 = session1.split("/")[0].trim();
-            notes.add(new ArrayList<>(Arrays.asList(code, description, session1)));
+
+            WebElement closeButton = divPopup.findElement(
+                By.cssSelector("[class=\"v-window-closebox\"]")
+            );
+            click(closeButton);
         }
+
         return notes;
     }
 
-    public static void sendMail(
-        String gmail_username,
-        String gmail_password,
-        String from_email,
-        String to_email,
-        String content
-    ) {
+    public static void sendMail(String content) {
         // Set up properties for the mail session
         Properties props = new Properties();
         props.put("mail.smtp.auth", "true");
@@ -240,7 +289,7 @@ public class App {
             props,
             new javax.mail.Authenticator() {
                 protected PasswordAuthentication getPasswordAuthentication() {
-                    return new PasswordAuthentication(gmail_username, gmail_password);
+                    return new PasswordAuthentication(gmail_login_email, gmail_password);
                 }
             }
         );
