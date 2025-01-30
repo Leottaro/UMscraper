@@ -22,10 +22,12 @@ import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeMessage;
 import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
+import org.openqa.selenium.StaleElementReferenceException;
 import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.WebElement;
 import org.openqa.selenium.firefox.FirefoxDriver;
 import org.openqa.selenium.firefox.FirefoxOptions;
+import org.openqa.selenium.support.ui.ExpectedCondition;
 import org.openqa.selenium.support.ui.ExpectedConditions;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
@@ -125,7 +127,7 @@ public class App {
         FirefoxOptions options = new FirefoxOptions();
         options.addArguments("--headless");
         driver = new FirefoxDriver(options);
-        wait = new WebDriverWait(driver, Duration.ofSeconds(10));
+        wait = new WebDriverWait(driver, Duration.ofSeconds(60));
     }
 
     public static boolean scrapNotes() {
@@ -176,23 +178,37 @@ public class App {
     }
 
     private static void click(WebElement element) throws InterruptedException {
-        wait.until(ExpectedConditions.visibilityOf(element));
+        waitFindElementRetry(ExpectedConditions.visibilityOf(element));
         ((JavascriptExecutor) driver).executeScript("arguments[0].click();", element);
         Thread.sleep(1000);
+    }
+
+    private static <T> T waitFindElementRetry(ExpectedCondition<T> expectedConditions)
+        throws RuntimeException {
+        int attempts = 0;
+        while (attempts < 3) {
+            try {
+                return wait.until(expectedConditions);
+            } catch (StaleElementReferenceException e) {
+                System.out.println("element not found, retrying... (" + attempts + ")");
+            }
+            attempts++;
+        }
+        throw new RuntimeException("Element not found");
     }
 
     private static void loginToEnt(WebDriver driver, WebDriverWait wait) {
         System.out.println("Logging in to ENT");
         driver.get("https://ent.umontpellier.fr");
-        WebElement usernameField = wait.until(
+        WebElement usernameField = waitFindElementRetry(
             ExpectedConditions.visibilityOfElementLocated(By.id("username"))
         );
-        WebElement passwordField = wait.until(
+        WebElement passwordField = waitFindElementRetry(
             ExpectedConditions.visibilityOfElementLocated(By.id("password"))
         );
         usernameField.sendKeys(ent_login_email);
         passwordField.sendKeys(ent_password);
-        WebElement loginButton = wait.until(
+        WebElement loginButton = waitFindElementRetry(
             ExpectedConditions.visibilityOfElementLocated(By.cssSelector("[type=submit]"))
         );
         loginButton.click();
@@ -206,14 +222,13 @@ public class App {
 
         ArrayList<ArrayList<String>> notes = new ArrayList<>();
 
-        WebElement tableauFilieres = wait
-            .until(
-                ExpectedConditions.visibilityOfAllElementsLocatedBy(
-                    By.cssSelector(
-                        "[class=\"v-table v-widget noscrollabletable v-table-noscrollabletable v-has-width\"]"
-                    )
+        WebElement tableauFilieres = waitFindElementRetry(
+            ExpectedConditions.visibilityOfAllElementsLocatedBy(
+                By.cssSelector(
+                    "[class=\"v-table v-widget noscrollabletable v-table-noscrollabletable v-has-width\"]"
                 )
             )
+        )
             .get(1);
         int nbFilieres = tableauFilieres
             .findElements(
@@ -225,14 +240,13 @@ public class App {
 
         for (int i = 1; i < nbFilieres; i += 2) {
             tableauFilieres =
-                wait
-                    .until(
-                        ExpectedConditions.visibilityOfAllElementsLocatedBy(
-                            By.cssSelector(
-                                "[class=\"v-table v-widget noscrollabletable v-table-noscrollabletable v-has-width\"]"
-                            )
+                waitFindElementRetry(
+                    ExpectedConditions.visibilityOfAllElementsLocatedBy(
+                        By.cssSelector(
+                            "[class=\"v-table v-widget noscrollabletable v-table-noscrollabletable v-has-width\"]"
                         )
                     )
+                )
                     .get(1);
             WebElement filiere = tableauFilieres
                 .findElements(
@@ -244,7 +258,7 @@ public class App {
             String filiereText = filiere.getText();
 
             click(filiere);
-            WebElement divPopup = wait.until(
+            WebElement divPopup = waitFindElementRetry(
                 ExpectedConditions.visibilityOfElementLocated(
                     By.cssSelector("[class=\"v-window v-widget v-has-width v-has-height\"]")
                 )
