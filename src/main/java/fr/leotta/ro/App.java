@@ -134,13 +134,7 @@ public class App {
         try {
             loginToEnt(driver, wait);
             ArrayList<ArrayList<String>> notes = fetchNotes(driver, wait);
-            String notesString = notes
-                .stream()
-                .map(note -> String.join(";", note))
-                .reduce("", (acc, note) -> acc + note + "\n");
-            int nb_notes = notes.size() + 1; // +1 because the first row should be the header
 
-            System.out.println("Writing notes to file");
             File notes_file = new File("notes.csv");
             if (!notes_file.exists()) {
                 notes_file.createNewFile();
@@ -149,22 +143,38 @@ public class App {
             System.out.println("Reading old notes");
             FileReader reader = new FileReader(notes_file);
             BufferedReader bufferedReader = new BufferedReader(reader);
-            int old_nb_notes = 0;
-            while (bufferedReader.readLine() != null) {
-                old_nb_notes++;
-            }
+            ArrayList<ArrayList<String>> old_notes = bufferedReader
+                .lines()
+                .map(line -> new ArrayList<>(Arrays.asList(line.split(";"))))
+                .collect(ArrayList::new, ArrayList::add, ArrayList::addAll);
             bufferedReader.close();
             reader.close();
 
+            ArrayList<ArrayList<String>> notes_difference = new ArrayList<>();
+            for (ArrayList<String> note : notes) {
+                if (!old_notes.stream().anyMatch(old_note -> old_note.get(0).equals(note.get(0)))) {
+                    notes_difference.add(note);
+                }
+            }
+
             System.out.println("Writing new notes");
             FileWriter writer = new FileWriter(notes_file);
-            writer.write("Code;Libellé;Session 1\n");
-            writer.write(notesString);
+            writer.write(
+                notes
+                    .stream()
+                    .map(note -> String.join(";", note))
+                    .reduce("", (acc, note) -> acc + note + "\n")
+            );
             writer.close();
 
-            if (old_nb_notes != nb_notes) {
+            if (!notes_difference.isEmpty()) {
                 System.out.println("Changes detected ! sending email...");
-                sendMail(notesString);
+                sendMail(
+                    notes_difference
+                        .stream()
+                        .map(note -> String.join(" — ", note))
+                        .reduce("", (acc, note) -> acc + note + "\n")
+                );
             } else {
                 System.out.println("No changes detected");
             }
