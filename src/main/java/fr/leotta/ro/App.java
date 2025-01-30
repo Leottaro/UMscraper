@@ -58,6 +58,7 @@ public class App {
                 return;
             }
         }
+        driver.quit();
     }
 
     public static void setDotEnvValues() throws IOException {
@@ -182,8 +183,6 @@ public class App {
         } catch (Exception e) {
             e.printStackTrace();
             return false;
-        } finally {
-            driver.quit();
         }
     }
 
