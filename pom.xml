@@ -31,6 +31,16 @@
 
 	<build>
 		<plugins>
+			 <!-- Maven Compiler Plugin to set the Java version -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-compiler-plugin</artifactId>
+				<version>3.8.1</version>
+				<configuration>
+					<source>8</source>
+					<target>8</target>
+				</configuration>
+			</plugin>
 			<!-- Assembly Plugin to create an executable JAR -->
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
