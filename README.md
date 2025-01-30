@@ -77,5 +77,4 @@ L'application va scraper les notes du compte spécifié toutes les heures. Si un
 -   **Problèmes de connexion** : Assurez-vous que vos identifiants ENT sont corrects et que vous pouvez vous connecter manuellement.
 -   **Problèmes avec Geckodriver** : Vérifiez que le chemin vers Geckodriver est correct et que l'exécutable est accessible.
 -   **Problèmes d'envoi d'email** : Assurez-vous que vous avez généré un mot de passe d'application pour votre compte Gmail et que les paramètres de votre compte permettent l'envoi d'emails via SMTP.
-
-Pour toute autre question ou problème, veuillez consulter la documentation ou ouvrir une issue sur le dépôt GitHub.
+-   
