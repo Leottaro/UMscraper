@@ -20,6 +20,8 @@ import javax.mail.Session;
 import javax.mail.Transport;
 import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeMessage;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.openqa.selenium.By;
 import org.openqa.selenium.JavascriptExecutor;
 import org.openqa.selenium.StaleElementReferenceException;
@@ -33,6 +35,8 @@ import org.openqa.selenium.support.ui.WebDriverWait;
 
 public class App {
 
+    private static final Logger logger = LogManager.getLogger(App.class);
+
     public static WebDriver driver;
     public static WebDriverWait wait;
 
@@ -43,30 +47,41 @@ public class App {
     public static String gmail_password;
     public static String from_email;
     public static String to_email;
+    public static Duration sleep_time;
 
     public static void main(String[] args) throws IOException {
         setDotEnvValues();
         webDriverInit();
 
-        System.out.println("Starting the UMscraper");
+        logger.info("Starting the UMscraper");
         while (scrapNotes()) {
             try {
-                System.out.println("Sleeping for 1 hour");
-                Thread.sleep(Duration.ofMinutes(60).toMillis());
+                logger.info(
+                    "Sleeping {}",
+                    sleep_time
+                        .toString()
+                        .substring(2)
+                        .replaceAll("(\\d[HMS])(?!$)", "$1 ")
+                        .toLowerCase()
+                );
+                Thread.sleep(sleep_time.toMillis());
             } catch (InterruptedException e) {
-                e.printStackTrace();
+                logger.error("InterruptedException occurred", e);
                 return;
             }
         }
+
+        sendMail("An error occurred while scraping the notes, please check the logs");
+
         driver.quit();
     }
 
     public static void setDotEnvValues() throws IOException {
-        System.out.println("Setting up the environment variables");
+        logger.info("Setting up the environment variables");
         File dotenv_file = new File(".env");
         if (!dotenv_file.exists()) {
-            System.err.format(
-                ".env file not found in the current directory, created one at %s\n",
+            logger.error(
+                ".env file not found in the current directory, created one at {}",
                 dotenv_file.getAbsolutePath()
             );
             FileWriter writer = new FileWriter(dotenv_file);
@@ -94,10 +109,28 @@ public class App {
         from_email = dotenv.get("FROM_EMAIL");
         to_email = dotenv.get("TO_EMAIL");
 
+        String raw_sleep_time = dotenv.get("SLEEP_TIME");
+        Character unit = raw_sleep_time.charAt(raw_sleep_time.length() - 1);
+        raw_sleep_time = raw_sleep_time.substring(0, raw_sleep_time.length() - 1);
+        switch (unit) {
+            case 's':
+                sleep_time = Duration.ofSeconds(Long.parseLong(raw_sleep_time));
+                break;
+            case 'm':
+                sleep_time = Duration.ofMinutes(Long.parseLong(raw_sleep_time));
+                break;
+            case 'h':
+                sleep_time = Duration.ofHours(Long.parseLong(raw_sleep_time));
+                break;
+            default:
+                logger.error("Invalid unit for SLEEP_TIME");
+                throw new RuntimeException("Invalid unit for SLEEP_TIME");
+        }
+
         // Check if the geckodriver exists
         if (!geckodriver_path.toFile().exists()) {
-            System.err.format(
-                "Geckodriver not found at %s, please provide the correct path in the .env file. You can download the geckodriver at https://github.com/mozilla/geckodriver/releases/\n",
+            logger.error(
+                "Geckodriver not found at {}, please provide the correct path in the .env file. You can download the geckodriver at https://github.com/mozilla/geckodriver/releases/",
                 geckodriver_path
             );
             throw new RuntimeException("Geckodriver not found");
@@ -105,7 +138,7 @@ public class App {
 
         // if from_email isn't specified, use the gmail_login_email as sender
         if (from_email == null || from_email.isEmpty()) {
-            System.out.println("from_email not specified, using gmail_login_email as sender");
+            logger.warn("from_email not specified, using gmail_login_email as sender");
             from_email = "" + gmail_login_email;
         }
 
@@ -123,7 +156,7 @@ public class App {
     }
 
     public static void webDriverInit() {
-        System.out.println("Initializing the WebDriver");
+        logger.info("Initializing the WebDriver");
         System.setProperty("webdriver.gecko.driver", geckodriver_path.toString());
         FirefoxOptions options = new FirefoxOptions();
         options.addArguments("--headless");
@@ -141,7 +174,7 @@ public class App {
                 notes_file.createNewFile();
             }
 
-            System.out.println("Reading old notes");
+            logger.info("Reading old notes");
             FileReader reader = new FileReader(notes_file);
             BufferedReader bufferedReader = new BufferedReader(reader);
             ArrayList<ArrayList<String>> old_notes = bufferedReader
@@ -158,7 +191,7 @@ public class App {
                 }
             }
 
-            System.out.println("Writing new notes");
+            logger.info("Writing new notes");
             FileWriter writer = new FileWriter(notes_file);
             writer.write(
                 notes
@@ -169,7 +202,7 @@ public class App {
             writer.close();
 
             if (!notes_difference.isEmpty()) {
-                System.out.println("Changes detected ! sending email...");
+                logger.info("Changes detected ! sending email...");
                 sendMail(
                     notes_difference
                         .stream()
@@ -177,11 +210,11 @@ public class App {
                         .reduce("", (acc, note) -> acc + note + "\n")
                 );
             } else {
-                System.out.println("No changes detected");
+                logger.info("No changes detected");
             }
             return true;
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Exception occurred while scraping notes", e);
             return false;
         }
     }
@@ -194,12 +227,12 @@ public class App {
 
     private static <T> T waitFindElementRetry(ExpectedCondition<T> expectedConditions)
         throws RuntimeException {
-        int attempts = 0;
-        while (attempts < 3) {
+        int attempts = 1;
+        while (attempts <= 3) {
             try {
                 return wait.until(expectedConditions);
             } catch (StaleElementReferenceException e) {
-                System.out.println("element not found, retrying... (" + attempts + ")");
+                logger.warn("Element not found, retrying... ({}/3)", attempts);
             }
             attempts++;
         }
@@ -207,7 +240,7 @@ public class App {
     }
 
     private static void loginToEnt(WebDriver driver, WebDriverWait wait) {
-        System.out.println("Logging in to ENT");
+        logger.info("Logging in to ENT");
         driver.get("https://ent.umontpellier.fr");
         WebElement usernameField = waitFindElementRetry(
             ExpectedConditions.visibilityOfElementLocated(By.id("username"))
@@ -226,7 +259,7 @@ public class App {
 
     private static ArrayList<ArrayList<String>> fetchNotes(WebDriver driver, WebDriverWait wait)
         throws InterruptedException {
-        System.out.println("Fetching notes");
+        logger.info("Fetching notes");
         driver.get("https://app.umontpellier.fr/mdw/#!notesView");
 
         ArrayList<ArrayList<String>> notes = new ArrayList<>();
@@ -273,7 +306,7 @@ public class App {
                 )
             );
 
-            System.out.println("Fetching notes for " + filiereText);
+            logger.info("Fetching notes for {}", filiereText);
             List<WebElement> rows = divPopup.findElements(By.tagName("tr"));
             for (WebElement row : rows) {
                 List<WebElement> cols = row.findElements(By.tagName("td"));
@@ -327,9 +360,9 @@ public class App {
 
             // Send the email
             Transport.send(message);
-            System.out.println("Email sent successfully");
+            logger.info("Email sent successfully");
         } catch (MessagingException e) {
-            System.err.println("Error while sending the email\n" + e.getMessage());
+            logger.error("Error while sending the email", e);
         }
     }
 }

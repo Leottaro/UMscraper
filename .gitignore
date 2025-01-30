@@ -2,3 +2,4 @@
 target
 .env
 notes.csv
+logs
