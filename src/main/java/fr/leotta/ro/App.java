@@ -184,6 +184,11 @@ public class App {
             bufferedReader.close();
             reader.close();
 
+			if (notes.size() <= old_notes.size()) {
+				logger.info("No new notes found");
+				return true;
+			}
+
             ArrayList<ArrayList<String>> notes_difference = new ArrayList<>();
             for (ArrayList<String> note : notes) {
                 if (!old_notes.stream().anyMatch(old_note -> old_note.get(0).equals(note.get(0)))) {
@@ -203,6 +208,9 @@ public class App {
 
             if (!notes_difference.isEmpty()) {
                 logger.info("Changes detected ! sending email...");
+				logger.info("notes found: {}", notes_difference);
+				logger.info("old notes: {}", old_notes);
+				logger.info("notes difference: {}", notes_difference);
                 sendMail(
                     notes_difference
                         .stream()
