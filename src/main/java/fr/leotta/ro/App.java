@@ -51,10 +51,11 @@ public class App {
 
     public static void main(String[] args) throws IOException {
         setDotEnvValues();
-        webDriverInit();
 
         logger.info("Starting the UMscraper");
-        while (scrapNotes()) {
+        while (true) {
+            webDriverInit();
+            scrapNotes();
             try {
                 logger.info(
                     "Sleeping {}",
@@ -70,10 +71,6 @@ public class App {
                 return;
             }
         }
-
-        sendMail("An error occurred while scraping the notes, please check the logs");
-
-        driver.quit();
     }
 
     public static void setDotEnvValues() throws IOException {
