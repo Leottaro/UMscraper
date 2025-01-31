@@ -157,6 +157,9 @@ public class App {
         System.setProperty("webdriver.gecko.driver", geckodriver_path.toString());
         FirefoxOptions options = new FirefoxOptions();
         options.addArguments("--headless");
+        if (driver != null) {
+            driver.close();
+        }
         driver = new FirefoxDriver(options);
         wait = new WebDriverWait(driver, Duration.ofSeconds(60));
     }
